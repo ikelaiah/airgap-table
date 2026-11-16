@@ -10,6 +10,7 @@
   const OVERSCAN = 12;            // extra rows rendered above/below the viewport
   const HISTORY_BUDGET = 60000000; // max chars held by undo snapshots
   const fmtNum = (n) => n.toLocaleString();
+  const GUTTER = 56; // px, matches --gutter in CSS
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
   const SVGNS = "http://www.w3.org/2000/svg";
 
@@ -331,7 +332,7 @@
   function tableWidth() {
     let ch = 0;
     colWidths.forEach((w) => { ch += w; });
-    return "calc(52px + " + ch + "ch + " + colWidths.length * 26 + "px)";
+    return "calc(" + GUTTER + "px + " + ch + "ch + " + colWidths.length * 26 + "px)";
   }
   function growCol(c, v) {
     const w = clampW(T.displayWidth(show(v)));
@@ -405,7 +406,7 @@
     colWidths = computeColWidths();
     const colgroup = el("colgroup");
     const gcol = el("col");
-    gcol.style.width = "52px";
+    gcol.style.width = GUTTER + "px";
     colgroup.appendChild(gcol);
     const cols = colWidths.map((w) => {
       const col = el("col");
@@ -462,11 +463,13 @@
     const addCol = el("button", "add add-col");
     addCol.type = "button";
     addCol.dataset.act = "addcol";
-    addCol.append(icon("plus"), el("span", "", "Column"));
+    addCol.setAttribute("aria-label", "Add column");
+    addCol.title = "Add column";
+    addCol.append(icon("plus"));
     const addRow = el("button", "add add-row");
     addRow.type = "button";
     addRow.dataset.act = "addrow";
-    addRow.append(icon("plus"), el("span", "", "Row"));
+    addRow.append(icon("plus"), el("span", "", "Add row"));
 
     wrap.append(table, addCol, addRow);
     scroller.appendChild(wrap);
@@ -556,7 +559,7 @@
     if (!d) return;
     d.focus({ preventScroll: true });
     const cr = d.getBoundingClientRect(), sr = scroller.getBoundingClientRect();
-    if (cr.left < sr.left + 52) scroller.scrollLeft -= sr.left + 52 - cr.left;
+    if (cr.left < sr.left + GUTTER) scroller.scrollLeft -= sr.left + GUTTER - cr.left;
     else if (cr.right > sr.right) scroller.scrollLeft += cr.right - sr.right;
     const range = document.createRange();
     range.selectNodeContents(d);

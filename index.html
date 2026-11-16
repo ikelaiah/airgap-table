@@ -9,16 +9,16 @@
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-  <header class="top">
+  <header class="appbar">
     <div class="brand">
       <svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14.5v2.5"/></svg>
-      <h1>Airgap Table</h1>
+      <div class="brand-text">
+        <h1>Airgap Table</h1>
+        <p class="tag">Edit Markdown tables like a spreadsheet. Your data stays in this browser tab.</p>
+      </div>
     </div>
-    <p class="tag">Edit Markdown tables like a spreadsheet. Your data stays in this browser tab.</p>
-  </header>
 
-  <section class="trust" aria-label="Data safety">
-    <ul class="proofs">
+    <ul class="proofs" aria-label="Data safety, measured live">
       <li class="proof ok" id="proof-net">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18M8.5 16.4a5 5 0 0 1 7-.1M5 12.9a10 10 0 0 1 4.3-2.6M19 12.9a10 10 0 0 0-2.9-2.1M2 8.8a15 15 0 0 1 4.2-2.7M22 8.8A15 15 0 0 0 10.7 5M12 20h.01"/></svg>
         <span><strong>Network locked</strong> <span class="sub" id="net-sub">0 outbound connections</span></span>
@@ -36,13 +36,18 @@
         <span><strong>Gone on close</strong> <span class="sub">Lives only in this tab</span></span>
       </li>
     </ul>
+
     <div class="trust-actions">
-      <button id="verify-toggle" type="button" aria-expanded="false" aria-controls="verify">How to verify</button>
+      <button id="verify-toggle" type="button" aria-expanded="false" aria-controls="verify">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6z"/><path d="M9 12l2 2 4-4"/></svg>
+        How to verify
+      </button>
       <button id="wipe" type="button" class="danger">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/></svg>
         Wipe data
       </button>
     </div>
+
     <div id="verify" class="verify" hidden>
       <p>These indicators are measured live in this page, not hard-coded.</p>
       <ul>
@@ -53,48 +58,50 @@
         <li><strong>Read the source:</strong> about 1,250 lines of plain JavaScript, no dependencies. See <code>SECURITY.md</code>.</li>
       </ul>
     </div>
-  </section>
-
-  <div class="toolbar" role="toolbar" aria-label="Table tools">
-    <div class="group">
-      <button id="undo" type="button" class="icon" aria-label="Undo" title="Undo (Ctrl+Z)" disabled>
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14L4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
-      </button>
-      <button id="redo" type="button" class="icon" aria-label="Redo" title="Redo (Ctrl+Shift+Z)" disabled>
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 14l5-5-5-5M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg>
-      </button>
-    </div>
-    <div class="group">
-      <label for="cols">New</label>
-      <input id="cols" type="number" min="1" max="50" value="3" aria-label="Columns">
-      <span class="times" aria-hidden="true">×</span>
-      <input id="rows" type="number" min="0" max="500" value="3" aria-label="Rows">
-      <button id="new" type="button">Create</button>
-    </div>
-    <div class="group">
-      <label for="align">Align all</label>
-      <select id="align">
-        <option value="" selected>Choose…</option>
-        <option value="none">Default</option>
-        <option value="left">Left</option>
-        <option value="center">Center</option>
-        <option value="right">Right</option>
-      </select>
-      <button id="transpose" type="button">Transpose</button>
-    </div>
-  </div>
+  </header>
 
   <main class="workspace">
     <section class="pane grid-pane" aria-labelledby="grid-title">
       <div class="pane-head">
         <h2 id="grid-title">Table</h2>
-        <span class="hint">Tab, Enter and arrows move. Drag handles to reorder. Paste spreadsheet cells.</span>
+        <div class="tools-row" role="toolbar" aria-label="Table tools">
+          <div class="group">
+            <button id="undo" type="button" class="icon" aria-label="Undo" title="Undo (Ctrl+Z)" disabled>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14L4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
+            </button>
+            <button id="redo" type="button" class="icon" aria-label="Redo" title="Redo (Ctrl+Shift+Z)" disabled>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 14l5-5-5-5M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg>
+            </button>
+          </div>
+          <span class="divider" aria-hidden="true"></span>
+          <div class="group">
+            <select id="align" aria-label="Align all columns">
+              <option value="" selected>Align all…</option>
+              <option value="none">Default</option>
+              <option value="left">Left</option>
+              <option value="center">Center</option>
+              <option value="right">Right</option>
+            </select>
+            <button id="transpose" type="button">Transpose</button>
+          </div>
+          <span class="divider" aria-hidden="true"></span>
+          <div class="group new-group">
+            <span class="group-label" id="new-label">New</span>
+            <input id="cols" type="number" min="1" max="50" value="3" aria-label="Columns for new table">
+            <span class="times" aria-hidden="true">×</span>
+            <input id="rows" type="number" min="0" max="500" value="3" aria-label="Rows for new table">
+            <button id="new" type="button" aria-describedby="new-label">Create</button>
+          </div>
+        </div>
+      </div>
+      <div id="grid-scroll" class="grid-scroll"></div>
+      <div class="pane-foot">
+        <p class="hint">Tab, Enter and arrows move between cells. Drag a handle to reorder. Paste cells from a spreadsheet.</p>
         <div id="progress" class="progress" role="status" hidden>
           <span id="progress-label" class="progress-label"></span>
           <span class="progress-track" aria-hidden="true"><span id="progress-bar" class="progress-bar"></span></span>
         </div>
       </div>
-      <div id="grid-scroll" class="grid-scroll"></div>
     </section>
 
     <section class="pane md-pane" aria-labelledby="md-title">
@@ -116,7 +123,7 @@
         <button id="md-edit-all" type="button">Edit full text</button>
       </div>
       <textarea id="md" spellcheck="false" autocomplete="off" autocapitalize="off" aria-describedby="md-hint"></textarea>
-      <p id="md-hint" class="hint">Paste Markdown, CSV or TSV here. The table updates as you type.</p>
+      <div class="pane-foot"><p id="md-hint" class="hint">Paste Markdown, CSV or TSV here. The table updates as you type.</p></div>
     </section>
   </main>
 
