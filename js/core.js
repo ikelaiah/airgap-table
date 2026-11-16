@@ -184,6 +184,7 @@
   var api = Object.freeze({
     parse: parse, format: format, transpose: transpose, setAlign: setAlign,
     blank: blank, displayWidth: displayWidth, detectFormat: detectFormat,
+    parseDelimited: parseDelimited,
   });
 
   if (typeof module === "object" && module.exports) module.exports = api;

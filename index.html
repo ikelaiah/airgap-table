@@ -9,53 +9,112 @@
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-  <header>
-    <h1>Airgap Table</h1>
-    <p class="tag">Format, create and tidy Markdown tables. Runs entirely in this page. Nothing is sent, stored or loaded.</p>
+  <header class="top">
+    <div class="brand">
+      <svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14.5v2.5"/></svg>
+      <h1>Airgap Table</h1>
+    </div>
+    <p class="tag">Edit Markdown tables like a spreadsheet. Your data stays in this browser tab.</p>
   </header>
 
-  <main>
-    <section class="controls" aria-label="Controls">
-      <div class="group">
-        <button id="format" type="button" class="primary">Format</button>
-        <button id="compact" type="button">Compact</button>
-        <button id="transpose" type="button">Transpose</button>
+  <section class="trust" aria-label="Data safety">
+    <ul class="proofs">
+      <li class="proof ok" id="proof-net">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18M8.5 16.4a5 5 0 0 1 7-.1M5 12.9a10 10 0 0 1 4.3-2.6M19 12.9a10 10 0 0 0-2.9-2.1M2 8.8a15 15 0 0 1 4.2-2.7M22 8.8A15 15 0 0 0 10.7 5M12 20h.01"/></svg>
+        <span><strong>Network locked</strong> <span class="sub" id="net-sub">0 outbound connections</span></span>
+      </li>
+      <li class="proof ok" id="proof-files">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 14l2 2 4-4"/></svg>
+        <span><strong>Local code only</strong> <span class="sub" id="files-sub">Checking…</span></span>
+      </li>
+      <li class="proof ok">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6"/><path d="M3 3l18 18"/></svg>
+        <span><strong>Nothing saved</strong> <span class="sub">No cookies or storage</span></span>
+      </li>
+      <li class="proof ok">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 14l3 3 5-5"/></svg>
+        <span><strong>Gone on close</strong> <span class="sub">Lives only in this tab</span></span>
+      </li>
+    </ul>
+    <div class="trust-actions">
+      <button id="verify-toggle" type="button" aria-expanded="false" aria-controls="verify">How to verify</button>
+      <button id="wipe" type="button" class="danger">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/></svg>
+        Wipe data
+      </button>
+    </div>
+    <div id="verify" class="verify" hidden>
+      <p>These indicators are measured live in this page, not hard-coded.</p>
+      <ul>
+        <li><strong>Network locked:</strong> a Content Security Policy (<code>connect-src 'none'</code>) makes the browser refuse every outbound request. Any attempt is counted here and turns this indicator red.</li>
+        <li><strong>Local code only:</strong> lists every file the browser loaded and flags anything from another origin.</li>
+        <li><strong>Nothing saved:</strong> the code never calls cookies, localStorage, sessionStorage or IndexedDB. Reload the page and your table is gone.</li>
+        <li><strong>Try it yourself:</strong> open DevTools → Network, then edit and paste. No requests appear. Or turn off Wi‑Fi: everything keeps working.</li>
+        <li><strong>Read the source:</strong> about 900 lines of plain JavaScript, no dependencies. See <code>SECURITY.md</code>.</li>
+      </ul>
+    </div>
+  </section>
+
+  <div class="toolbar" role="toolbar" aria-label="Table tools">
+    <div class="group">
+      <button id="undo" type="button" class="icon" aria-label="Undo" title="Undo (Ctrl+Z)" disabled>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14L4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
+      </button>
+      <button id="redo" type="button" class="icon" aria-label="Redo" title="Redo (Ctrl+Shift+Z)" disabled>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 14l5-5-5-5M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg>
+      </button>
+    </div>
+    <div class="group">
+      <label for="cols">New</label>
+      <input id="cols" type="number" min="1" max="50" value="3" aria-label="Columns">
+      <span class="times" aria-hidden="true">×</span>
+      <input id="rows" type="number" min="0" max="500" value="3" aria-label="Rows">
+      <button id="new" type="button">Create</button>
+    </div>
+    <div class="group">
+      <label for="align">Align all</label>
+      <select id="align">
+        <option value="" selected>Choose…</option>
+        <option value="none">Default</option>
+        <option value="left">Left</option>
+        <option value="center">Center</option>
+        <option value="right">Right</option>
+      </select>
+      <button id="transpose" type="button">Transpose</button>
+    </div>
+  </div>
+
+  <main class="workspace">
+    <section class="pane grid-pane" aria-labelledby="grid-title">
+      <div class="pane-head">
+        <h2 id="grid-title">Table</h2>
+        <span class="hint">Tab, Enter and arrows move. Drag handles to reorder. Paste spreadsheet cells.</span>
       </div>
-      <div class="group">
-        <label for="align">Align all</label>
-        <select id="align">
-          <option value="keep">Keep</option>
-          <option value="none">Default</option>
-          <option value="left">Left</option>
-          <option value="center">Center</option>
-          <option value="right">Right</option>
-        </select>
-      </div>
-      <div class="group">
-        <label for="cols">Cols</label>
-        <input id="cols" type="number" min="1" max="50" value="3">
-        <label for="rows">Rows</label>
-        <input id="rows" type="number" min="0" max="500" value="2">
-        <button id="new" type="button">New table</button>
-      </div>
+      <div id="grid-scroll" class="grid-scroll"></div>
     </section>
 
-    <div class="panes">
-      <div class="pane">
-        <label for="input">Input <span class="hint">Markdown, CSV or TSV (paste from a spreadsheet)</span></label>
-        <textarea id="input" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea>
-      </div>
-      <div class="pane">
-        <div class="pane-head">
-          <label for="output">Output</label>
-          <button id="copy" type="button">Copy</button>
-          <button id="swap" type="button">Use as input</button>
+    <section class="pane md-pane" aria-labelledby="md-title">
+      <div class="pane-head">
+        <h2 id="md-title"><label for="md">Markdown</label></h2>
+        <div class="seg" role="radiogroup" aria-label="Output style">
+          <button type="button" role="radio" aria-checked="true" data-style="padded">Padded</button>
+          <button type="button" role="radio" aria-checked="false" data-style="compact">Compact</button>
         </div>
-        <textarea id="output" spellcheck="false" readonly></textarea>
+        <button id="format" type="button" title="Format (Ctrl+Enter)">Format</button>
+        <button id="copy" type="button" class="primary">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>
+          Copy
+        </button>
       </div>
-    </div>
-    <p id="status" role="status" aria-live="polite"></p>
+      <textarea id="md" spellcheck="false" autocomplete="off" autocapitalize="off" aria-describedby="md-hint"></textarea>
+      <p id="md-hint" class="hint">Paste Markdown, CSV or TSV here. The table updates as you type.</p>
+    </section>
   </main>
+
+  <footer class="statusbar">
+    <span id="status" role="status" aria-live="polite"></span>
+    <span id="dims" class="dims"></span>
+  </footer>
 
   <script src="js/core.js"></script>
   <script src="js/app.js"></script>

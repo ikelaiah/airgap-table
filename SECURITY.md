@@ -3,10 +3,15 @@
 ## Guarantees
 - **No network:** CSP `connect-src 'none'`, `default-src 'none'`. The page cannot fetch, beacon, or load remote scripts, fonts, images or frames.
 - **No storage:** no cookies, localStorage, sessionStorage or IndexedDB. Closing the tab erases everything.
-- **No dependencies:** no npm packages, CDNs, build step or bundler. ~400 lines of plain JS to audit.
+- **No dependencies:** no npm packages, CDNs, build step or bundler. ~900 lines of plain JS to audit.
 - **No code injection paths:** no `innerHTML`, `eval`, `Function`, or inline scripts/styles. All output goes to `textarea.value` / `textContent`, so pasted HTML is never rendered.
 - **No forms:** `form-action 'none'`, `base-uri 'none'`.
 - **Input cap:** 2 MB per operation; generated tables are capped at 50 × 500.
+
+## In-page indicators
+- **Network locked:** listens for `securitypolicyviolation` events; any blocked attempt is counted and the indicator turns red.
+- **Local code only:** checks every loaded resource (Resource Timing API) and flags any from another origin.
+- **Wipe data:** clears the table, Markdown and undo history from memory.
 
 ## `serve.js` (optional)
 - Binds to `127.0.0.1` only.

@@ -3,11 +3,15 @@
 Format, create and tidy Markdown tables in the browser. Fully offline, zero dependencies.
 
 ## Features
-- Tidy messy Markdown tables (aligned, padded columns)
-- Convert CSV/TSV (paste from Excel/Sheets) to Markdown
-- Compact output, transpose, set column alignment
-- New blank table (cols × rows)
+- Spreadsheet-style grid editor, synced live with the Markdown
+- Tab / Enter / arrow navigation; Tab or Enter on the last row adds a row
+- Drag (or arrow-key) to reorder rows and columns
+- Paste cells from Excel/Sheets straight into the grid
+- Click a column's align button to cycle left / center / right
+- Paste Markdown, CSV or TSV into the Markdown box
+- Padded or compact output, transpose, undo/redo
 - Wide-character aware (CJK, emoji)
+- Live safety indicators and a Wipe button
 
 ## Use
 - **No install:** open `index.html` in a browser.
