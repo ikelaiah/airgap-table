@@ -48,16 +48,68 @@
     $("verify").hidden = !open;
   });
 
-  $("wipe").addEventListener("click", () => {
+  /* Paste reassurance: at the moment people worry most, the network proof answers. */
+  const netText = () => (blocked ? blocked + " attempt" + (blocked > 1 ? "s" : "") + " blocked by policy" : "0 outbound connections");
+  const fmtChars = (n) => (n < 10000 ? fmtNum(n) : n < 1e6 ? (n / 1e3).toFixed(1) + "K" : (n / 1e6).toFixed(1) + "M") + (n === 1 ? " character" : " characters");
+  let reassureTimer = 0;
+  function reassure(chars) {
+    if (blocked) return; // never paper over a real warning
+    const proof = $("proof-net"), sub = $("net-sub");
+    sub.textContent = "Pasted " + fmtChars(chars) + " · 0 sent";
+    proof.classList.remove("pulse");
+    void proof.offsetWidth; // restart the animation on repeat pastes
+    proof.classList.add("pulse");
+    clearTimeout(reassureTimer);
+    reassureTimer = setTimeout(() => { sub.textContent = netText(); proof.classList.remove("pulse"); }, 2600);
+  }
+  document.addEventListener("paste", (e) => {
+    const text = e.clipboardData && e.clipboardData.getData("text/plain");
+    if (text) reassure(text.length);
+  }, true);
+
+  /* Wipe: an inline second click instead of a modal, then the data visibly leaves. */
+  const wipeBtn = $("wipe"), wipeLabel = wipeBtn.lastChild;
+  let wipeArmed = 0;
+  function disarmWipe() {
+    clearTimeout(wipeArmed);
+    wipeArmed = 0;
+    wipeBtn.classList.remove("armed");
+    wipeLabel.textContent = " Wipe data";
+  }
+  wipeBtn.addEventListener("blur", disarmWipe);
+  wipeBtn.addEventListener("click", () => {
+    if (!wipeArmed) {
+      wipeBtn.classList.add("armed");
+      wipeLabel.textContent = " Click again to wipe";
+      say("Click Wipe again to clear the table, Markdown and undo history. This cannot be undone.");
+      wipeArmed = setTimeout(disarmWipe, 3500);
+      return;
+    }
+    disarmWipe();
+    // Clear the data first; the dissolve below only plays on the leftover pixels.
     model = { header: [], align: [], rows: [] };
     rowIds = []; colIds = []; undoStack = []; redoStack = []; active = null;
     parseJob++; fmtJob++; // cancel any background work holding the old data
-    md.value = "";
     mdFull = null; md.readOnly = false; $("md-large").hidden = true;
     syncHistoryButtons();
-    render();
-    say("Wiped. Table, Markdown and undo history are cleared from memory.");
+    const finish = () => {
+      md.value = "";
+      md.classList.remove("dissolving");
+      wipedNotice = true;
+      render();
+      say("Wiped. Table, Markdown and undo history are cleared from this tab's memory.");
+    };
+    if (reduceMotion.matches || !Element.prototype.animate) { finish(); return; }
+    const ease = "cubic-bezier(0.4, 0, 1, 1)";
+    const rows = Array.from(scroller.querySelectorAll("thead tr, tbody tr[data-id], .add"));
+    rows.forEach((n, i) => n.animate(
+      [{ opacity: 1, transform: "translateY(0)", filter: "blur(0)" }, { opacity: 0, transform: "translateY(-6px)", filter: "blur(3px)" }],
+      { duration: 220, delay: Math.min(i, 14) * 16, easing: ease, fill: "forwards" }
+    ));
+    md.classList.add("dissolving");
+    setTimeout(finish, 220 + Math.min(rows.length, 14) * 16);
   });
+  let wipedNotice = false;
 
   /* ---------- icons ---------- */
   const ICONS = {
@@ -379,9 +431,25 @@
     const n = model.header.length;
 
     if (!n) {
-      const empty = el("div", "empty");
-      empty.appendChild(el("p", "empty-title", "No table yet"));
-      empty.appendChild(el("p", "empty-body", "Paste Markdown, CSV or spreadsheet cells into the Markdown box, or start a blank table."));
+      const empty = el("div", "empty" + (wipedNotice ? " wiped" : ""));
+      if (wipedNotice) {
+        const seal = document.createElementNS(SVGNS, "svg");
+        seal.setAttribute("viewBox", "0 0 24 24");
+        seal.setAttribute("aria-hidden", "true");
+        seal.classList.add("seal");
+        ["M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6z", "M9 12l2 2 4-4"].forEach((d) => {
+          const p = document.createElementNS(SVGNS, "path");
+          p.setAttribute("d", d);
+          seal.appendChild(p);
+        });
+        empty.appendChild(seal);
+        empty.appendChild(el("p", "empty-title", "Wiped"));
+        empty.appendChild(el("p", "empty-body", "The table, Markdown and undo history are cleared from this tab's memory. Nothing was saved or sent."));
+        wipedNotice = false;
+      } else {
+        empty.appendChild(el("p", "empty-title", "No table yet"));
+        empty.appendChild(el("p", "empty-body", "Paste Markdown, CSV or spreadsheet cells into the Markdown box, or start a blank table."));
+      }
       const b = el("button", "primary", "Start a 3 × 3 table");
       b.type = "button";
       b.addEventListener("click", () => newTable(3, 3));
@@ -909,11 +977,40 @@
   });
   $("new").addEventListener("click", () => newTable(parseInt($("cols").value, 10) || 1, parseInt($("rows").value, 10) || 0));
 
+  /* Copy confirmation: the button itself becomes the receipt, then quietly reverts. */
+  const copyBtn = $("copy");
+  const copyIdle = Array.from(copyBtn.childNodes).map((n) => n.cloneNode(true));
+  let copyTimer = 0;
+  function confirmCopy(rows) {
+    clearTimeout(copyTimer);
+    copyBtn.style.minWidth = copyBtn.offsetWidth + "px";
+    copyBtn.textContent = "";
+    const s = document.createElementNS(SVGNS, "svg");
+    s.setAttribute("viewBox", "0 0 24 24");
+    s.setAttribute("aria-hidden", "true");
+    s.classList.add("check");
+    const p = document.createElementNS(SVGNS, "path");
+    p.setAttribute("d", "M5 12.5l4.5 4.5L19 7.5");
+    s.appendChild(p);
+    copyBtn.append(s, document.createTextNode(rows ? "Copied " + fmtNum(rows) + (rows === 1 ? " row" : " rows") : "Copied"));
+    copyBtn.classList.add("copied");
+    copyTimer = setTimeout(() => {
+      copyBtn.classList.remove("copied");
+      copyBtn.textContent = "";
+      copyIdle.forEach((n) => copyBtn.appendChild(n.cloneNode(true)));
+      copyBtn.style.minWidth = "";
+    }, 1800);
+  }
+
   $("copy").addEventListener("click", () => {
     const all = getMarkdown();
     if (!all) { say("Nothing to copy."); return; }
-    const done = () => say("Copied to your clipboard.");
-    const fallback = () => { if (mdFull != null) { say("Clipboard unavailable. Use Edit full text, then select all and press Ctrl+C."); return; } md.select(); say(document.execCommand("copy") ? "Copied to your clipboard." : "Select the Markdown and press Ctrl+C."); };
+    const done = () => {
+      const rows = model.rows.length;
+      say("Copied " + (rows ? fmtNum(rows) + " row" + (rows === 1 ? "" : "s") + " of Markdown" : "the Markdown") + " to your clipboard.");
+      confirmCopy(rows);
+    };
+    const fallback = () => { if (mdFull != null) { say("Clipboard unavailable. Use Edit full text, then select all and press Ctrl+C."); return; } md.select(); if (document.execCommand("copy")) done(); else say("Select the Markdown and press Ctrl+C."); };
     if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(all).then(done, fallback);
     else fallback();
   });

@@ -410,3 +410,59 @@ button.grip { cursor: grab; touch-action: none; }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
 }
+
+/* ---------- delight: reassurance, certainty, closure ---------- */
+/* Paste reassurance: the network proof answers at the moment of worry. */
+.proof { transition: background-color .4s ease-out; }
+.proof.pulse { background: color-mix(in srgb, var(--accent-soft) 55%, var(--accent-line)); }
+.proof.pulse svg { animation: proof-beat 0.9s cubic-bezier(0.16, 1, 0.3, 1); }
+.proof.pulse .sub { color: var(--accent); font-weight: 600; }
+.proofs { overflow: hidden; }
+@keyframes proof-beat {
+  0% { transform: scale(1); }
+  30% { transform: scale(1.18); }
+  100% { transform: scale(1); }
+}
+
+/* Wipe: armed state reads as a deliberate second step. */
+button.danger.armed {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: var(--panel);
+  font-weight: 600;
+  animation: arm-in 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+button.danger.armed:hover:not(:disabled) { background: var(--danger); filter: brightness(1.06); }
+@keyframes arm-in { from { transform: scale(0.97); } to { transform: scale(1); } }
+textarea.dissolving { transition: opacity .25s cubic-bezier(0.4, 0, 1, 1), filter .25s; opacity: 0; filter: blur(3px); }
+
+/* Wiped state: calm closure, not celebration. */
+.empty.wiped .seal {
+  width: 40px;
+  height: 40px;
+  padding: 8px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-line);
+  border-radius: 12px;
+  stroke-width: 1.75;
+  animation: seal-in 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.empty.wiped .seal path:last-child { stroke-dasharray: 12; stroke-dashoffset: 12; animation: draw 0.4s 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.empty.wiped .empty-title, .empty.wiped .empty-body, .empty.wiped button { animation: rise 0.45s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.empty.wiped .empty-body { animation-delay: 0.05s; }
+.empty.wiped button { animation-delay: 0.1s; }
+@keyframes seal-in { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }
+@keyframes draw { to { stroke-dashoffset: 0; } }
+@keyframes rise { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+/* Copy receipt */
+button.primary.copied { background: var(--accent-hover); }
+button.copied .check path { stroke-dasharray: 22; stroke-dashoffset: 22; animation: draw 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+button.copied .check { stroke-width: 2.2; }
+
+@media (prefers-reduced-motion: reduce) {
+  .proof.pulse svg, button.danger.armed, .empty.wiped *, button.copied .check path { animation: none !important; }
+  .empty.wiped .seal path:last-child, button.copied .check path { stroke-dashoffset: 0; }
+  textarea.dissolving { transition: none; }
+}
