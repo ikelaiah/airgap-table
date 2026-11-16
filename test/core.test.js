@@ -58,3 +58,28 @@ test("HTML is passed through as text, never interpreted", () => {
   const out = T.format(T.parse("|<img src=x onerror=alert(1)>|\n|-|"));
   assert.ok(out.includes("<img src=x onerror=alert(1)>"));
 });
+
+test("chunked Parser matches one-shot parse (markdown and CSV)", () => {
+  const rows = Array.from({ length: 2500 }, (_, i) => `| r${i} | "q, ${i}" | ${i * 3} |`);
+  const mdText = "| a | b | c |\n|:-|:-:|-:|\n" + rows.join("\n");
+  const csvText = "a,b,c\n" + Array.from({ length: 2500 }, (_, i) => `r${i},"q, ""${i}""\nx",${i}`).join("\n");
+  for (const text of [mdText, csvText]) {
+    const p = new T.Parser(text);
+    let guard = 0;
+    while (!p.step(7)) { assert.ok(p.progress() < 1); guard++; }
+    assert.ok(guard > 10);
+    assert.deepEqual(p.result(), T.parse(text));
+  }
+});
+
+test("chunked Formatter matches one-shot format", () => {
+  const t = T.parse("| a | bb | 日本 |\n|:-|:-:|-:|\n" + Array.from({ length: 300 }, (_, i) => `| ${i} | x${i % 7} | y |`).join("\n"));
+  for (const compact of [false, true]) {
+    const f = new T.Formatter(t, { compact });
+    while (!f.step(5)) assert.ok(f.progress() < 1);
+    assert.equal(f.result(), T.format(t, { compact }));
+  }
+  const empty = new T.Formatter(T.parse("|a|b|\n|-|-|"));
+  assert.ok(empty.step(5));
+  assert.equal(empty.result(), "| a   | b   |\n| --- | --- |\n");
+});

@@ -10,6 +10,7 @@ Format, create and tidy Markdown tables in the browser. Fully offline, zero depe
 - Click a column's align button to cycle left / center / right
 - Paste Markdown, CSV or TSV into the Markdown box
 - Padded or compact output, transpose, undo/redo
+- Handles 100,000+ rows: virtual scrolling, time-sliced parsing and formatting, no freezing
 - Wide-character aware (CJK, emoji)
 - Live safety indicators and a Wipe button
 

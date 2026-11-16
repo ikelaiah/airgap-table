@@ -31,10 +31,23 @@
     return "none";
   }
 
-  // RFC 4180-style parser for CSV (sep ",") or TSV (sep "\t").
-  function parseDelimited(text, sep) {
-    var rows = [], row = [], cur = "", q = false;
-    for (var i = 0; i < text.length; i++) {
+  function cleanDelimitedRow(r) {
+    return r.map(function (c) {
+      return c.trim().replace(/\r?\n/g, "<br>").replace(/(^|[^\\])\|/g, "$1\\|");
+    });
+  }
+  function nonEmpty(row) { return row.some(function (c) { return c.trim() !== ""; }); }
+
+  // Resumable RFC 4180-style tokenizer for CSV (sep ",") or TSV (sep "\t").
+  // step(limit) consumes up to `limit` characters, so large input can be split across frames.
+  function DelimitedTokenizer(text, sep) {
+    this.text = text; this.sep = sep; this.pos = 0;
+    this.rows = []; this.row = []; this.cur = ""; this.q = false; this.done = false;
+  }
+  DelimitedTokenizer.prototype.step = function (limit) {
+    var text = this.text, sep = this.sep, end = Math.min(text.length, this.pos + limit);
+    var row = this.row, cur = this.cur, q = this.q, i = this.pos;
+    for (; i < end; i++) {
       var ch = text.charAt(i);
       if (q) {
         if (ch === '"') {
@@ -45,17 +58,23 @@
       else if (ch === "\n" || ch === "\r") {
         if (ch === "\r" && text.charAt(i + 1) === "\n") i++;
         row.push(cur); cur = "";
-        if (row.some(function (c) { return c.trim() !== ""; })) rows.push(row);
+        if (nonEmpty(row)) this.rows.push(cleanDelimitedRow(row));
         row = [];
       } else cur += ch;
     }
-    row.push(cur);
-    if (row.some(function (c) { return c.trim() !== ""; })) rows.push(row);
-    return rows.map(function (r) {
-      return r.map(function (c) {
-        return c.trim().replace(/\r?\n/g, "<br>").replace(/(^|[^\\])\|/g, "$1\\|");
-      });
-    });
+    this.pos = i; this.row = row; this.cur = cur; this.q = q;
+    if (i >= text.length && !this.done) {
+      row.push(cur);
+      if (nonEmpty(row)) this.rows.push(cleanDelimitedRow(row));
+      this.row = []; this.cur = ""; this.done = true;
+    }
+    return this.done;
+  };
+
+  function parseDelimited(text, sep) {
+    var t = new DelimitedTokenizer(text, sep);
+    t.step(Infinity);
+    return t.rows;
   }
 
   function detectFormat(text) {
@@ -67,32 +86,64 @@
     return "markdown";
   }
 
-  // Returns { header: string[], align: string[], rows: string[][] }.
-  function parse(text) {
-    var fmt = detectFormat(text);
-    var grid;
-    var align = null;
-    if (fmt === "empty") return { header: [], align: [], rows: [] };
-    if (fmt === "tsv" || fmt === "csv") {
-      grid = parseDelimited(text, fmt === "tsv" ? "\t" : ",");
-    } else {
-      var lines = text.split(/\r?\n/).filter(function (l) { return l.trim() !== ""; });
-      grid = [];
-      lines.forEach(function (l, idx) {
-        var cells = splitRow(l);
-        if (idx === 1 && cells.every(function (c) { return DELIM_CELL.test(c); })) {
-          align = cells.map(alignOf);
-        } else if (idx > 1 && cells.every(function (c) { return DELIM_CELL.test(c); })) {
-          // stray delimiter row: ignore
-        } else grid.push(cells);
-      });
+  // Resumable parser. step(limit) does a bounded slice of work and returns true when done;
+  // progress() is 0..1; result() returns { header, align, rows }.
+  function Parser(text) {
+    this.fmt = detectFormat(text);
+    this.align = null;
+    this.grid = [];
+    this.done = this.fmt === "empty";
+    if (this.fmt === "tsv" || this.fmt === "csv") {
+      this.tok = new DelimitedTokenizer(text, this.fmt === "tsv" ? "\t" : ",");
+    } else if (!this.done) {
+      this.lines = text.split(/\r?\n/);
+      this.li = 0;
+      this.seen = 0; // non-empty lines so far
     }
-    var width = grid.reduce(function (m, r) { return Math.max(m, r.length); }, 0);
-    grid = grid.map(function (r) { while (r.length < width) r.push(""); return r; });
-    align = align || [];
-    var a = [];
-    for (var i = 0; i < width; i++) a.push(align[i] || "none");
+  }
+  Parser.prototype.step = function (limit) {
+    if (this.done) return true;
+    if (this.tok) {
+      // ~40 chars per row is a fair unit, so `limit` means roughly "rows".
+      this.done = this.tok.step(limit === Infinity ? Infinity : limit * 40);
+      return this.done;
+    }
+    var end = Math.min(this.lines.length, this.li + limit);
+    for (; this.li < end; this.li++) {
+      var l = this.lines[this.li];
+      if (l.trim() === "") continue;
+      var cells = splitRow(l);
+      var isDelim = cells.every(function (c) { return DELIM_CELL.test(c); });
+      if (this.seen === 1 && isDelim) this.align = cells.map(alignOf);
+      else if (!(this.seen > 1 && isDelim)) this.grid.push(cells); // stray delimiter rows are dropped
+      this.seen++;
+    }
+    this.done = this.li >= this.lines.length;
+    return this.done;
+  };
+  Parser.prototype.progress = function () {
+    if (this.done) return 1;
+    if (this.tok) return this.tok.pos / Math.max(1, this.tok.text.length);
+    return this.li / Math.max(1, this.lines.length);
+  };
+  Parser.prototype.rowsSoFar = function () {
+    return this.tok ? this.tok.rows.length : this.grid.length;
+  };
+  Parser.prototype.result = function () {
+    if (this.fmt === "empty") return { header: [], align: [], rows: [] };
+    var grid = this.tok ? this.tok.rows : this.grid;
+    var width = 0, i;
+    for (i = 0; i < grid.length; i++) if (grid[i].length > width) width = grid[i].length;
+    for (i = 0; i < grid.length; i++) while (grid[i].length < width) grid[i].push("");
+    var align = this.align || [], a = [];
+    for (i = 0; i < width; i++) a.push(align[i] || "none");
     return { header: grid[0] || [], align: a, rows: grid.slice(1) };
+  };
+
+  function parse(text) {
+    var p = new Parser(text);
+    p.step(Infinity);
+    return p.result();
   }
 
   // Display width: wide East Asian / emoji = 2, combining marks = 0.
@@ -109,7 +160,9 @@
     return 1;
   }
 
+  var ASCII = /^[\x20-\x7e]*$/;
   function displayWidth(s) {
+    if (ASCII.test(s)) return s.length;
     var w = 0;
     for (var ch of s) w += charWidth(ch.codePointAt(0));
     return w;
@@ -134,29 +187,70 @@
     return "-".repeat(w);
   }
 
-  // opts.compact: no padding. Returns Markdown string.
+  function line(cells) { return "| " + cells.join(" | ") + " |"; }
+
+  // Resumable formatter: pass 1 measures column widths, pass 2 builds lines.
+  // step(limit) handles up to `limit` rows; opts.compact skips padding.
+  function Formatter(t, opts) {
+    this.t = t;
+    this.compact = !!(opts && opts.compact);
+    this.n = t.header.length;
+    this.widths = [];
+    for (var c = 0; c < this.n; c++) this.widths.push(Math.max(3, displayWidth(t.header[c] || "")));
+    this.phase = 0;
+    this.i = 0;
+    this.out = [];
+    this.done = !this.n;
+    if (this.n && this.compact) this.startLines();
+  }
+  Formatter.prototype.startLines = function () {
+    var t = this.t, w = this.widths;
+    this.phase = 1; this.i = 0;
+    if (this.compact) {
+      this.out.push(line(t.header), line(t.align.map(function (a) { return delimiter(a, 3); })));
+    } else {
+      this.out.push(line(t.header.map(function (h, k) { return pad(h, w[k], t.align[k]); })));
+      this.out.push(line(t.align.map(function (a, k) { return delimiter(a, w[k]); })));
+    }
+  };
+  Formatter.prototype.step = function (limit) {
+    var t = this.t, rows = t.rows, n = this.n, w = this.widths, c, r, end;
+    while (!this.done) {
+      end = Math.min(rows.length, this.i + limit);
+      limit -= end - this.i;
+      if (this.phase === 0) {
+        for (; this.i < end; this.i++) {
+          r = rows[this.i];
+          for (c = 0; c < n; c++) { var d = displayWidth(r[c] || ""); if (d > w[c]) w[c] = d; }
+        }
+        if (this.i >= rows.length) this.startLines();
+      } else {
+        for (; this.i < end; this.i++) {
+          r = rows[this.i];
+          if (this.compact) { this.out.push(line(r)); continue; }
+          var cells = new Array(n);
+          for (c = 0; c < n; c++) cells[c] = pad(r[c] || "", w[c], t.align[c]);
+          this.out.push(line(cells));
+        }
+        if (this.i >= rows.length) this.done = true;
+      }
+      if (limit <= 0 && !this.done) return false;
+    }
+    return true;
+  };
+  Formatter.prototype.progress = function () {
+    if (this.done) return 1;
+    var total = Math.max(1, this.t.rows.length) * (this.compact ? 1 : 2);
+    return ((this.phase === 1 && !this.compact ? this.t.rows.length : 0) + this.i) / total;
+  };
+  Formatter.prototype.result = function () {
+    return this.n ? this.out.join("\n") + "\n" : "";
+  };
+
   function format(t, opts) {
-    opts = opts || {};
-    var n = t.header.length;
-    if (!n) return "";
-    var all = [t.header].concat(t.rows);
-    var widths = [];
-    for (var c = 0; c < n; c++) {
-      widths.push(all.reduce(function (m, r) { return Math.max(m, displayWidth(r[c] || "")); }, 3));
-    }
-    function line(cells) { return "| " + cells.join(" | ") + " |"; }
-    if (opts.compact) {
-      return [
-        line(t.header),
-        line(t.align.map(function (a) { return delimiter(a, 3); })),
-      ].concat(t.rows.map(line)).join("\n") + "\n";
-    }
-    var out = [line(t.header.map(function (h, i) { return pad(h, widths[i], t.align[i]); }))];
-    out.push(line(t.align.map(function (a, i) { return delimiter(a, widths[i]); })));
-    t.rows.forEach(function (r) {
-      out.push(line(r.map(function (cell, i) { return pad(cell, widths[i], t.align[i]); })));
-    });
-    return out.join("\n") + "\n";
+    var f = new Formatter(t, opts);
+    f.step(Infinity);
+    return f.result();
   }
 
   function transpose(t) {
@@ -184,7 +278,7 @@
   var api = Object.freeze({
     parse: parse, format: format, transpose: transpose, setAlign: setAlign,
     blank: blank, displayWidth: displayWidth, detectFormat: detectFormat,
-    parseDelimited: parseDelimited,
+    parseDelimited: parseDelimited, Parser: Parser, Formatter: Formatter,
   });
 
   if (typeof module === "object" && module.exports) module.exports = api;

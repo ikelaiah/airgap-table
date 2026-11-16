@@ -4,7 +4,12 @@
   const T = window.MdTable;
   const $ = (id) => document.getElementById(id);
   const md = $("md"), scroller = $("grid-scroll"), statusEl = $("status"), dims = $("dims");
-  const MAX_CHARS = 2000000, MAX_ROWS = 500, MAX_COLS = 50;
+  const MAX_CHARS = 25000000, MAX_ROWS = 200000, MAX_COLS = 50;
+  const ASYNC_ROWS = 3000;        // above this, formatting runs in time slices
+  const SYNC_PARSE_CHARS = 200000; // above this, parsing runs in time slices
+  const OVERSCAN = 12;            // extra rows rendered above/below the viewport
+  const HISTORY_BUDGET = 60000000; // max chars held by undo snapshots
+  const fmtNum = (n) => n.toLocaleString();
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
   const SVGNS = "http://www.w3.org/2000/svg";
 
@@ -45,7 +50,9 @@
   $("wipe").addEventListener("click", () => {
     model = { header: [], align: [], rows: [] };
     rowIds = []; colIds = []; undoStack = []; redoStack = []; active = null;
+    parseJob++; fmtJob++; // cancel any background work holding the old data
     md.value = "";
+    mdFull = null; md.readOnly = false; $("md-large").hidden = true;
     syncHistoryButtons();
     render();
     say("Wiped. Table, Markdown and undo history are cleared from memory.");
@@ -112,21 +119,38 @@
     const o = JSON.parse(s);
     model = o.m; rowIds = o.r; colIds = o.c;
   }
-  function pushHistory() {
-    undoStack.push(snapshot());
-    if (undoStack.length > 200) undoStack.shift();
+  /* History entries are full snapshots (strings) or cheap cell patches ({ cell, r, c, v }). */
+  const entrySize = (e) => (typeof e === "string" ? e.length : 64);
+  function pushHistory(entry) {
+    undoStack.push(entry || snapshot());
     redoStack = [];
+    let total = 0;
+    undoStack.forEach((e) => { total += entrySize(e); });
+    while ((total > HISTORY_BUDGET && undoStack.length > 1) || undoStack.length > 200) total -= entrySize(undoStack.shift());
     syncHistoryButtons();
   }
+  const getCell = (r, c) => (r < 0 ? model.header[c] : model.rows[r][c]);
+  function setCell(r, c, v) { if (r < 0) model.header[c] = v; else model.rows[r][c] = v; }
   function syncHistoryButtons() {
     $("undo").disabled = !undoStack.length;
     $("redo").disabled = !redoStack.length;
   }
   function step(from, to, msg) {
     if (!from.length) return;
+    const e = from.pop();
+    if (e && e.cell) {
+      to.push({ cell: true, r: e.r, c: e.c, v: getCell(e.r, e.c) });
+      setCell(e.r, e.c, e.v);
+      syncHistoryButtons();
+      render();
+      writeMarkdown(true);
+      focusCell(e.r, e.c, false);
+      say(msg);
+      return;
+    }
     to.push(snapshot());
     const before = measure();
-    restore(from.pop());
+    restore(e);
     syncHistoryButtons();
     render();
     flip(before);
@@ -139,14 +163,82 @@
   function say(msg) { statusEl.textContent = msg; }
   function updateDims() {
     dims.textContent = model.header.length
-      ? model.header.length + " columns × " + model.rows.length + " rows"
+      ? fmtNum(model.header.length) + " columns × " + fmtNum(model.rows.length) + " rows"
       : "";
   }
 
+  /* Time-sliced work: ~10ms per slice, yielding to the browser between slices,
+     so input, scrolling and painting never wait on a big table. */
+  const progressEl = $("progress"), progressBar = $("progress-bar"), progressLabel = $("progress-label");
+  let progressOwner = 0;
+  function showProgress(owner, frac, label) {
+    progressOwner = owner;
+    progressEl.hidden = false;
+    progressBar.style.transform = "scaleX(" + Math.max(0.02, frac).toFixed(3) + ")";
+    progressLabel.textContent = label + " · " + Math.round(frac * 100) + "%";
+  }
+  function hideProgress(owner) {
+    if (owner !== progressOwner) return;
+    progressEl.hidden = true;
+  }
+  let sliceSeq = 0;
+  function runSliced(worker, isCurrent, label, onDone) {
+    const owner = ++sliceSeq, t0 = performance.now();
+    (function slice() {
+      if (!isCurrent()) { hideProgress(owner); return; }
+      const until = performance.now() + 10;
+      let done = false;
+      while (!done && performance.now() < until) done = worker.step(500);
+      if (done) { hideProgress(owner); onDone(performance.now() - t0); return; }
+      if (performance.now() - t0 > 120) showProgress(owner, worker.progress(), typeof label === "function" ? label() : label);
+      setTimeout(slice, 0);
+    })();
+  }
+
+  /* Large Markdown lives in memory, not in the textarea: browsers re-lay out a
+     multi-megabyte textarea on every page layout. The textarea shows a read-only preview. */
+  const LARGE_CHARS = 1000000, PREVIEW_LINES = 400;
+  let mdFull = null;
+  function setMarkdown(text) {
+    if (text.length <= LARGE_CHARS) {
+      mdFull = null;
+      md.readOnly = false;
+      $("md-large").hidden = true;
+      md.value = text;
+      return;
+    }
+    mdFull = text;
+    let cut = -1, lines = 0;
+    while (lines < PREVIEW_LINES && (cut = text.indexOf("\n", cut + 1)) !== -1) lines++;
+    let total = 0;
+    for (let i = text.indexOf("\n"); i !== -1; i = text.indexOf("\n", i + 1)) total++;
+    md.readOnly = true;
+    md.value = text.slice(0, cut === -1 ? text.length : cut) + "\n";
+    $("md-large-text").textContent = "Large table: showing the first " + fmtNum(PREVIEW_LINES) + " of " +
+      fmtNum(total) + " lines (" + (text.length / 1048576).toFixed(1) + " MB). Copy includes everything.";
+    $("md-large").hidden = false;
+  }
+  const getMarkdown = () => (mdFull != null ? mdFull : md.value);
+  $("md-edit-all").addEventListener("click", () => {
+    if (mdFull == null) return;
+    say("Loading the full text into the editor. Scrolling may be slow at this size.");
+    const text = mdFull;
+    mdFull = null;
+    $("md-large").hidden = true;
+    md.readOnly = false;
+    setTimeout(() => { md.value = text; md.focus(); md.setSelectionRange(0, 0); }, 30);
+  });
+
+  let fmtJob = 0;
   function writeMarkdown(force) {
-    if (!force && document.activeElement === md) return;
-    md.value = T.format(model, { compact: style === "compact" });
     updateDims();
+    if (!force && document.activeElement === md && !md.readOnly) return;
+    const job = ++fmtJob, opts = { compact: style === "compact" };
+    if (model.rows.length < ASYNC_ROWS) { setMarkdown(T.format(model, opts)); return; }
+    const f = new T.Formatter(model, opts);
+    runSliced(f, () => job === fmtJob, "Writing Markdown", () => {
+      if (force || document.activeElement !== md || md.readOnly) setMarkdown(f.result());
+    });
   }
 
   /* ---------- springs ---------- */
@@ -216,10 +308,72 @@
   }
 
   /* ---------- render ---------- */
+  /* Virtual window state for the current render. */
+  let vt = null;
+  const vrows = new Map(); // row index -> <tr>
+  let colWidths = [];
+
+  const clampW = (w) => Math.max(6, Math.min(40, w));
+  const colCss = (w) => "calc(" + w + "ch + 26px)";
+  function computeColWidths() {
+    const n = model.header.length, rows = model.rows;
+    const w = model.header.map((h) => clampW(T.displayWidth(show(h)) + 1));
+    const stepBy = Math.max(1, Math.floor(rows.length / 20000)); // sample huge tables
+    for (let i = 0; i < rows.length; i += stepBy) {
+      const r = rows[i];
+      for (let c = 0; c < n; c++) {
+        const d = T.displayWidth(show(r[c] || ""));
+        if (d > w[c]) w[c] = clampW(d);
+      }
+    }
+    return w;
+  }
+  function tableWidth() {
+    let ch = 0;
+    colWidths.forEach((w) => { ch += w; });
+    return "calc(52px + " + ch + "ch + " + colWidths.length * 26 + "px)";
+  }
+  function growCol(c, v) {
+    const w = clampW(T.displayWidth(show(v)));
+    if (!vt || w <= colWidths[c]) return;
+    colWidths[c] = w;
+    vt.cols[c].style.width = colCss(w);
+    vt.table.style.width = tableWidth();
+  }
+
+  function buildRow(r) {
+    const n = model.header.length, row = model.rows[r];
+    const tr = el("tr");
+    tr.dataset.id = rowIds[r];
+    tr.dataset.r = r;
+    const g = el("th", "gutter");
+    g.scope = "row";
+    if (active && active.r === r) g.classList.add("is-active");
+    const num = el("span", "num", fmtNum(r + 1));
+    const tools = el("span", "tools");
+    const grip = iconButton("grip", "Move row " + (r + 1) + " (drag, or arrow keys)", "grip");
+    grip.dataset.drag = "row"; grip.dataset.r = r;
+    const del = iconButton("x", "Delete row " + (r + 1), "del");
+    del.dataset.act = "delrow"; del.dataset.r = r;
+    tools.append(grip, del);
+    g.append(num, tools);
+    tr.appendChild(g);
+    for (let c = 0; c < n; c++) {
+      const td = el("td", "a-" + model.align[c]);
+      td.dataset.cid = colIds[c];
+      td.appendChild(cell(r, c, row[c]));
+      tr.appendChild(td);
+    }
+    return tr;
+  }
+
   function render() {
     springs.clear();
     if (raf) { cancelAnimationFrame(raf); raf = 0; }
+    const keepTop = scroller.scrollTop, keepLeft = scroller.scrollLeft;
     scroller.textContent = "";
+    vt = null;
+    vrows.clear();
     updateDims();
     const n = model.header.length;
 
@@ -237,7 +391,7 @@
     if (n > MAX_COLS || model.rows.length > MAX_ROWS) {
       const big = el("div", "empty");
       big.appendChild(el("p", "empty-title", "Too large for the grid"));
-      big.appendChild(el("p", "empty-body", "The grid edits up to " + MAX_COLS + " columns and " + MAX_ROWS + " rows. Edit this table in the Markdown box; Format still works."));
+      big.appendChild(el("p", "empty-body", "The grid edits up to " + MAX_COLS + " columns and " + fmtNum(MAX_ROWS) + " rows. Edit this table in the Markdown box; Format still works."));
       scroller.appendChild(big);
       return;
     }
@@ -245,7 +399,21 @@
     const wrap = el("div", "sheet");
     const table = el("table", "grid");
     table.setAttribute("aria-label", "Table editor");
+    table.setAttribute("aria-rowcount", String(model.rows.length + 1));
     const thead = el("thead"), tbody = el("tbody");
+
+    colWidths = computeColWidths();
+    const colgroup = el("colgroup");
+    const gcol = el("col");
+    gcol.style.width = "52px";
+    colgroup.appendChild(gcol);
+    const cols = colWidths.map((w) => {
+      const col = el("col");
+      col.style.width = colCss(w);
+      colgroup.appendChild(col);
+      return col;
+    });
+    table.style.width = tableWidth();
 
     const bar = el("tr", "colbar");
     bar.appendChild(el("th", "corner"));
@@ -278,29 +446,18 @@
     }
     thead.append(bar, head);
 
-    model.rows.forEach((row, r) => {
-      const tr = el("tr");
-      tr.dataset.id = rowIds[r];
-      const g = el("th", "gutter");
-      g.scope = "row";
-      const num = el("span", "num", String(r + 1));
-      const tools = el("span", "tools");
-      const grip = iconButton("grip", "Move row " + (r + 1) + " (drag, or arrow keys)", "grip");
-      grip.dataset.drag = "row"; grip.dataset.r = r;
-      const del = iconButton("x", "Delete row " + (r + 1), "del");
-      del.dataset.act = "delrow"; del.dataset.r = r;
-      tools.append(grip, del);
-      g.append(num, tools);
-      tr.appendChild(g);
-      for (let c = 0; c < n; c++) {
-        const td = el("td", "a-" + model.align[c]);
-        td.dataset.cid = colIds[c];
-        td.appendChild(cell(r, c, row[c]));
-        tr.appendChild(td);
-      }
-      tbody.appendChild(tr);
-    });
-    table.append(thead, tbody);
+    // Rows are virtual: two spacer rows stand in for everything outside the viewport.
+    const spacer = () => {
+      const tr = el("tr", "spacer");
+      tr.setAttribute("aria-hidden", "true");
+      const td = el("td");
+      td.colSpan = n + 1;
+      tr.appendChild(td);
+      return tr;
+    };
+    const topSp = spacer(), botSp = spacer();
+    tbody.append(topSp, botSp);
+    table.append(colgroup, thead, tbody);
 
     const addCol = el("button", "add add-col");
     addCol.type = "button";
@@ -313,8 +470,62 @@
 
     wrap.append(table, addCol, addRow);
     scroller.appendChild(wrap);
+
+    vt = { table, thead, tbody, topSp, botSp, cols, rowH: 37, tbodyTop: 0, headH: 0 };
+    if (model.rows.length) {
+      const probe = buildRow(0);
+      tbody.insertBefore(probe, botSp);
+      vt.rowH = probe.getBoundingClientRect().height || 37;
+      probe.remove();
+    }
+    const sr = scroller.getBoundingClientRect();
+    vt.tbodyTop = topSp.getBoundingClientRect().top - sr.top + scroller.scrollTop;
+    vt.headH = thead.getBoundingClientRect().height;
+    botSp.firstChild.style.height = Math.round(model.rows.length * vt.rowH) + "px";
+    scroller.scrollTop = keepTop;
+    scroller.scrollLeft = keepLeft;
+    updateWindow();
     if (active) markActive(active.r, active.c);
   }
+
+  /* Render only rows inside the viewport (plus overscan). Kept rows are never moved,
+     so a focused cell stays focused while you scroll near it. */
+  function updateWindow() {
+    if (!vt || drag) return;
+    const N = model.rows.length, H = vt.rowH;
+    const top = scroller.scrollTop - vt.tbodyTop;
+    const first = Math.max(0, Math.min(N, Math.floor(top / H) - OVERSCAN));
+    const last = Math.max(first, Math.min(N, Math.ceil((top + scroller.clientHeight) / H) + OVERSCAN));
+    vrows.forEach((tr, i) => {
+      if (i < first || i >= last) { tr.remove(); vrows.delete(i); }
+    });
+    let ks = Infinity, ke = -Infinity;
+    vrows.forEach((_, i) => { if (i < ks) ks = i; if (i + 1 > ke) ke = i + 1; });
+    const add = (from, to, before) => {
+      if (from >= to) return;
+      const frag = document.createDocumentFragment();
+      for (let i = from; i < to; i++) { const tr = buildRow(i); vrows.set(i, tr); frag.appendChild(tr); }
+      vt.tbody.insertBefore(frag, before);
+    };
+    if (!vrows.size) add(first, last, vt.botSp);
+    else {
+      add(first, Math.min(ks, last), vrows.get(ks));
+      add(Math.max(ke, first), last, vt.botSp);
+    }
+    vt.topSp.firstChild.style.height = Math.round(first * H) + "px";
+    vt.botSp.firstChild.style.height = Math.round((N - last) * H) + "px";
+    // Calibrate once per render from real rows, so spacers match the rendered row height.
+    if (!vt.calibrated && vrows.size > 1) {
+      vt.calibrated = true;
+      const a = vrows.get(first), b = vrows.get(last - 1);
+      const real = (b.getBoundingClientRect().bottom - a.getBoundingClientRect().top) / (last - first);
+      if (real > 0 && Math.abs(real - H) > 0.25) { vt.rowH = real; updateWindow(); }
+    }
+  }
+  let winRaf = 0;
+  const scheduleWindow = () => { if (!winRaf) winRaf = requestAnimationFrame(() => { winRaf = 0; updateWindow(); }); };
+  scroller.addEventListener("scroll", scheduleWindow, { passive: true });
+  window.addEventListener("resize", scheduleWindow);
 
   let plaintextOnly = null;
   function cell(r, c, value) {
@@ -332,10 +543,21 @@
   }
   const cellAt = (r, c) => scroller.querySelector('.cell[data-r="' + r + '"][data-c="' + c + '"]');
 
+  /* Scroll a row into view (below the sticky header), materialize it, then focus. */
   function focusCell(r, c, select) {
+    if (r >= 0 && vt) {
+      const H = vt.rowH, rowTop = vt.tbodyTop + r * H;
+      const viewTop = scroller.scrollTop + vt.headH, viewBot = scroller.scrollTop + scroller.clientHeight;
+      if (rowTop < viewTop) scroller.scrollTop = rowTop - vt.headH;
+      else if (rowTop + H > viewBot) scroller.scrollTop = rowTop + H - scroller.clientHeight;
+      updateWindow();
+    }
     const d = cellAt(r, c);
     if (!d) return;
-    d.focus();
+    d.focus({ preventScroll: true });
+    const cr = d.getBoundingClientRect(), sr = scroller.getBoundingClientRect();
+    if (cr.left < sr.left + 52) scroller.scrollLeft -= sr.left + 52 - cr.left;
+    else if (cr.right > sr.right) scroller.scrollLeft += cr.right - sr.right;
     const range = document.createRange();
     range.selectNodeContents(d);
     if (!select) range.collapse(false);
@@ -436,7 +658,7 @@
     const max = isRow ? model.rows.length : model.header.length;
     if (to < 0 || to >= max) return;
     mutate(() => (isRow ? moveRow(i, to) : moveCol(i, to)),
-      (isRow ? "Row moved to " + (to + 1) : "Column moved to " + colName(to)) + ".",
+      (isRow ? "Row moved to " + fmtNum(to + 1) : "Column moved to " + colName(to)) + ".",
       () => scroller.querySelector('button.grip[data-drag="' + (isRow ? "row" : "col") + '"][data-' + (isRow ? "r" : "c") + '="' + to + '"]').focus());
   });
 
@@ -446,21 +668,25 @@
     const g = e.target.closest("button.grip");
     if (!g || e.button !== 0) return;
     const isRow = g.dataset.drag === "row";
-    const from = isRow ? +g.dataset.r : +g.dataset.c;
-    let groups, rects;
+    let from = isRow ? +g.dataset.r : +g.dataset.c;
+    let groups, rects, idx;
     if (isRow) {
-      const trs = Array.from(scroller.querySelectorAll("tbody tr"));
+      // Only rendered rows take part; `idx` maps local positions back to real row numbers.
+      const trs = Array.from(scroller.querySelectorAll("tbody tr[data-id]"));
+      idx = trs.map((tr) => +tr.dataset.r);
+      from = idx.indexOf(from);
       groups = trs.map((tr) => [tr]);
       rects = trs.map((tr) => tr.getBoundingClientRect()).map((r) => ({ pos: r.top, size: r.height }));
     } else {
+      idx = colIds.map((_, i) => i);
       groups = colIds.map((cid) => Array.from(scroller.querySelectorAll('[data-cid="' + cid + '"]')));
       rects = Array.from(scroller.querySelectorAll("tr.head th[data-cid]"))
         .map((th) => th.getBoundingClientRect()).map((r) => ({ pos: r.left, size: r.width }));
     }
-    if (groups.length < 2) return;
+    if (groups.length < 2 || from < 0) return;
     e.preventDefault();
     try { g.setPointerCapture(e.pointerId); } catch (_) { /* synthetic pointer */ }
-    drag = { isRow, from, to: from, start: isRow ? e.clientY : e.clientX, groups, rects, grip: g, moved: false };
+    drag = { isRow, from, to: from, idx, start: isRow ? e.clientY : e.clientX, groups, rects, grip: g, moved: false };
     const lift = isRow ? groups[from][0].children : groups[from];
     Array.from(lift).forEach((n) => n.classList.add("lifted"));
     scroller.classList.add("dragging");
@@ -488,7 +714,8 @@
   });
   function endDrag() {
     if (!drag) return;
-    const { isRow, from, to, moved } = drag;
+    const { isRow, moved, idx } = drag;
+    const from = idx[drag.from], to = idx[drag.to];
     drag = null;
     scroller.classList.remove("dragging");
     if (!moved || from === to) {
@@ -498,7 +725,7 @@
       return;
     }
     mutate(() => (isRow ? moveRow(from, to) : moveCol(from, to)),
-      (isRow ? "Row moved to " + (to + 1) : "Column moved to " + colName(to)) + ".");
+      (isRow ? "Row moved to " + fmtNum(to + 1) : "Column moved to " + colName(to)) + ".");
   }
   scroller.addEventListener("pointerup", endDrag);
   scroller.addEventListener("pointercancel", endDrag);
@@ -515,12 +742,15 @@
   scroller.addEventListener("input", (e) => {
     const d = e.target.closest(".cell");
     if (!d) return;
-    if (!editSession) { pushHistory(); editSession = true; }
     const r = +d.dataset.r, c = +d.dataset.c;
+    if (!editSession) { pushHistory({ cell: true, r, c, v: getCell(r, c) }); editSession = true; }
     const v = store(d.textContent);
-    if (r < 0) model.header[c] = v; else model.rows[r][c] = v;
-    writeMarkdown();
+    setCell(r, c, v);
+    growCol(c, v);
+    if (model.rows.length < ASYNC_ROWS) writeMarkdown();
+    else { clearTimeout(cellTimer); cellTimer = setTimeout(writeMarkdown, 250); updateDims(); }
   });
+  let cellTimer = 0;
 
   function caretEdge(d, end) {
     const s = getSelection();
@@ -570,7 +800,7 @@
     e.preventDefault();
     const text = (e.clipboardData && e.clipboardData.getData("text/plain")) || "";
     if (!text) return;
-    if (text.length > MAX_CHARS) { say("Paste too large (max 2 MB)."); return; }
+    if (text.length > MAX_CHARS) { say("Paste too large (max 25 MB)."); return; }
     const trimmed = text.replace(/\r?\n$/, "");
     if (/[\t\n]/.test(trimmed)) {
       const grid = T.parseDelimited(trimmed, "\t");
@@ -604,19 +834,46 @@
   scroller.addEventListener("drop", (e) => e.preventDefault());
 
   /* ---------- markdown side ---------- */
-  let mdTimer = 0;
+  let mdTimer = 0, parseJob = 0;
+  function parseText(text, rewrite) {
+    const job = ++parseJob;
+    if (text.length > MAX_CHARS) { say("Input too large (max 25 MB)."); return; }
+    const apply = (t, ms) => {
+      model = t;
+      freshIds();
+      active = null;
+      scroller.scrollTop = 0;
+      render();
+      if (rewrite) writeMarkdown(true); else updateDims();
+      if (!model.header.length) say("No table found in the Markdown yet.");
+      else if (ms != null) say("Loaded " + fmtNum(model.rows.length) + " rows in " + (ms / 1000).toFixed(1) + " s. Nothing left this tab.");
+      else say("Table updated from Markdown.");
+    };
+    if (text.length < SYNC_PARSE_CHARS) { apply(T.parse(text)); return; }
+    const p = new T.Parser(text);
+    runSliced(p, () => job === parseJob, () => "Reading " + fmtNum(p.rowsSoFar()) + " rows", (ms) => apply(p.result(), ms));
+  }
   md.addEventListener("focus", () => { mdSession = false; });
   md.addEventListener("input", () => {
     if (!mdSession) { pushHistory(); mdSession = true; }
     clearTimeout(mdTimer);
-    mdTimer = setTimeout(() => {
-      if (md.value.length > MAX_CHARS) { say("Input too large (max 2 MB)."); return; }
-      model = T.parse(md.value);
-      freshIds();
-      active = null;
-      render();
-      say(model.header.length ? "Table updated from Markdown." : "No table found in the Markdown yet.");
-    }, 120);
+    parseJob++; // cancel a parse that is already running
+    mdTimer = setTimeout(() => parseText(md.value, false), md.value.length < SYNC_PARSE_CHARS ? 120 : 200);
+  });
+  /* Big pastes skip the textarea entirely and go straight to the sliced parser. */
+  md.addEventListener("paste", (e) => {
+    const text = (e.clipboardData && e.clipboardData.getData("text/plain")) || "";
+    if (text.length <= LARGE_CHARS && !md.readOnly) return;
+    e.preventDefault();
+    if (!text) return;
+    clearTimeout(mdTimer);
+    pushHistory();
+    mdFull = null;
+    md.readOnly = true;
+    md.value = "";
+    $("md-large-text").textContent = "Reading " + (text.length / 1048576).toFixed(1) + " MB…";
+    $("md-large").hidden = false;
+    parseText(text, true);
   });
   md.addEventListener("keydown", (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); $("format").click(); }
@@ -644,15 +901,17 @@
   });
   $("transpose").addEventListener("click", () => {
     if (!model.header.length) return;
+    if (model.rows.length + 1 > MAX_COLS) { say("Transpose works on tables with up to " + (MAX_COLS - 1) + " rows."); return; }
     mutate(() => { model = T.transpose(model); freshIds(); }, "Transposed.");
   });
   $("new").addEventListener("click", () => newTable(parseInt($("cols").value, 10) || 1, parseInt($("rows").value, 10) || 0));
 
   $("copy").addEventListener("click", () => {
-    if (!md.value) { say("Nothing to copy."); return; }
+    const all = getMarkdown();
+    if (!all) { say("Nothing to copy."); return; }
     const done = () => say("Copied to your clipboard.");
-    const fallback = () => { md.select(); say(document.execCommand("copy") ? "Copied to your clipboard." : "Select the Markdown and press Ctrl+C."); };
-    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(md.value).then(done, fallback);
+    const fallback = () => { if (mdFull != null) { say("Clipboard unavailable. Use Edit full text, then select all and press Ctrl+C."); return; } md.select(); say(document.execCommand("copy") ? "Copied to your clipboard." : "Select the Markdown and press Ctrl+C."); };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(all).then(done, fallback);
     else fallback();
   });
 

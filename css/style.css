@@ -317,3 +317,46 @@ button.grip { cursor: grab; touch-action: none; }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
 }
+
+/* ---------- large tables: bounded panes, virtual rows, sticky header + gutter ---------- */
+.pane { height: clamp(440px, calc(100vh - 250px), 1100px); }
+@media (max-width: 960px) { .pane { height: clamp(420px, 72vh, 900px); } }
+.grid-scroll { min-height: 0; overscroll-behavior: contain; }
+.grid { table-layout: fixed; }
+.grid tbody td .cell { overflow: hidden; text-overflow: ellipsis; }
+.grid tbody td .cell:focus { text-overflow: clip; overflow-x: auto; scrollbar-width: none; }
+.grid tr.head th .cell { overflow: hidden; text-overflow: ellipsis; }
+.grid tr.head th .cell:focus { text-overflow: clip; overflow-x: auto; scrollbar-width: none; }
+.grid tr.spacer td { padding: 0; border: 0; background: transparent; height: 0; }
+
+.grid thead th { position: sticky; z-index: 3; }
+.grid thead tr.colbar th { top: 0; background: var(--panel); height: 30px; }
+.grid thead tr.head th { top: 30px; }
+.grid .gutter { position: sticky; left: 0; z-index: 2; }
+.grid thead .corner { left: 0; z-index: 4; }
+.grid thead tr.colbar .corner { background: var(--panel) !important; position: sticky; }
+.grid thead tr.head .gutter.corner { background: var(--panel) !important; }
+.grid-scroll { padding-top: 0; }
+.sheet { padding-top: 0; }
+.lifted { z-index: 5 !important; }
+
+/* progress */
+.progress { flex: 1; display: flex; align-items: center; gap: 10px; min-width: 0; }
+.pane-head:has(.progress:not([hidden])) .hint { display: none; }
+.progress[hidden] { display: none; }
+.progress-label { font-size: 0.82rem; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.progress-track { flex: 1; max-width: 240px; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
+.progress-bar { display: block; height: 100%; background: var(--accent); transform-origin: left; transform: scaleX(0.02); transition: transform .12s linear; }
+
+/* large-document preview note */
+.large-note {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin: 0; padding: 9px 12px 9px 16px;
+  background: var(--accent-soft); border-bottom: 1px solid var(--accent-line);
+  font-size: 0.85rem; color: var(--fg);
+}
+.large-note[hidden] { display: none; }
+.large-note svg { color: var(--accent); width: 16px; height: 16px; }
+.large-note span { flex: 1; min-width: 200px; }
+.large-note button { min-height: 28px; padding: 3px 10px; }
+textarea[readonly] { color: var(--muted); }

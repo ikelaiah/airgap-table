@@ -50,7 +50,7 @@
         <li><strong>Local code only:</strong> lists every file the browser loaded and flags anything from another origin.</li>
         <li><strong>Nothing saved:</strong> the code never calls cookies, localStorage, sessionStorage or IndexedDB. Reload the page and your table is gone.</li>
         <li><strong>Try it yourself:</strong> open DevTools → Network, then edit and paste. No requests appear. Or turn off Wi‑Fi: everything keeps working.</li>
-        <li><strong>Read the source:</strong> about 900 lines of plain JavaScript, no dependencies. See <code>SECURITY.md</code>.</li>
+        <li><strong>Read the source:</strong> about 1,250 lines of plain JavaScript, no dependencies. See <code>SECURITY.md</code>.</li>
       </ul>
     </div>
   </section>
@@ -89,6 +89,10 @@
       <div class="pane-head">
         <h2 id="grid-title">Table</h2>
         <span class="hint">Tab, Enter and arrows move. Drag handles to reorder. Paste spreadsheet cells.</span>
+        <div id="progress" class="progress" role="status" hidden>
+          <span id="progress-label" class="progress-label"></span>
+          <span class="progress-track" aria-hidden="true"><span id="progress-bar" class="progress-bar"></span></span>
+        </div>
       </div>
       <div id="grid-scroll" class="grid-scroll"></div>
     </section>
@@ -105,6 +109,11 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>
           Copy
         </button>
+      </div>
+      <div id="md-large" class="large-note" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 10h16M4 14h10M4 18h6"/></svg>
+        <span id="md-large-text"></span>
+        <button id="md-edit-all" type="button">Edit full text</button>
       </div>
       <textarea id="md" spellcheck="false" autocomplete="off" autocapitalize="off" aria-describedby="md-hint"></textarea>
       <p id="md-hint" class="hint">Paste Markdown, CSV or TSV here. The table updates as you type.</p>
