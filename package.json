@@ -1,0 +1,11 @@
+{
+  "name": "airgap-table",
+  "version": "0.1.0",
+  "description": "Offline, zero-dependency Markdown table formatter",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "start": "node serve.js",
+    "test": "node --test test/core.test.js"
+  }
+}
