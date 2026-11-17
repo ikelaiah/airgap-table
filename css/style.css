@@ -153,8 +153,24 @@ h1 { font-size: 17px; font-weight: 650; letter-spacing: -0.01em; line-height: 1.
   border: 1px solid var(--line);
   border-radius: var(--radius);
 }
-.verify p { color: var(--muted); margin-bottom: 8px; }
-.verify ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; max-width: 90ch; }
+.verify h2 { font-size: 16px; font-weight: 650; margin-bottom: 4px; }
+.verify-lead { color: var(--muted); margin-bottom: 12px; max-width: 80ch; }
+.verify-lead strong { color: var(--fg); }
+.safety-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 32px;
+}
+.safety-grid li { display: flex; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); }
+.safety-grid svg { color: var(--accent); width: 18px; height: 18px; margin-top: 1px; }
+.safety-grid h3 { font-size: 13.5px; font-weight: 600; margin: 0 0 3px; }
+.safety-grid p { color: var(--muted); line-height: 1.5; }
+.safety-grid strong { color: var(--fg); font-weight: 600; }
+.verify code, .verify kbd { font-family: var(--mono); font-size: 12px; padding: 1px 4px; background: var(--sunk); border: 1px solid var(--line); border-radius: 4px; }
+@media (max-width: 760px) { .safety-grid { grid-template-columns: 1fr; } }
 
 /* ---------- workspace ---------- */
 .workspace {

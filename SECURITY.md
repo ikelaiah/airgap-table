@@ -3,7 +3,7 @@
 ## Guarantees
 - **No network:** CSP `connect-src 'none'`, `default-src 'none'`. The page cannot fetch, beacon, or load remote scripts, fonts, images or frames.
 - **No storage:** no cookies, localStorage, sessionStorage or IndexedDB. Closing the tab erases everything.
-- **No dependencies:** no npm packages, CDNs, build step or bundler. ~1,250 lines of plain JS to audit.
+- **No dependencies:** no npm packages, CDNs, build step or bundler. ~1,300 lines of plain JS to audit.
 - **No code injection paths:** no `innerHTML`, `eval`, `Function`, or inline scripts/styles. All output goes to `textarea.value` / `textContent`, so pasted HTML is never rendered.
 - **No forms:** `form-action 'none'`, `base-uri 'none'`.
 - **Resource caps:** 25 MB input, 50 columns × 200,000 rows in the grid, undo history capped at ~60 MB. Large work runs in small time slices on the main thread (no Web Workers, so CSP stays `worker-src 'none'`).
@@ -25,4 +25,4 @@
 4. Pin a release: compare `sha256sum` of files against the release notes.
 
 ## Reporting
-Open a private GitHub security advisory on this repo.
+Open a GitHub issue on this repo. Don't include real table data; a minimal made-up sample is enough.
